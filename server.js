@@ -26,6 +26,11 @@ const PRESET_QUESTIONS = [
     title: '你认为AI伦理治理最关键的原则是什么？',
     options: [],
   },
+  {id: 'human-nature-good-or-evil',
+    questionType: 'multiple-choice',
+    title: '人性本善还是本恶？',
+    options: ['人性本善，道德是人的天性', '人性本恶，道德是后天教化的结果', '人性无善无恶，受环境影响']
+  }
 ];
 
 const rooms = new Map();
