@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI 立场匹配器</title>
+    <style>
+      body { font-family: sans-serif; max-width: 760px; margin: 20px auto; padding: 0 12px; }
+      textarea, input, select, button { width: 100%; margin: 6px 0 12px; padding: 8px; box-sizing: border-box; }
+      .card { border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+      .hint { color: #666; font-size: 13px; }
+      .two-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      @media (max-width: 640px) { .two-cols { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <h1>政治/哲学立场匹配器</h1>
+    <p class="hint">两位远程用户输入同一房间号并回答同一道题，系统将给出立场相似度。</p>
+
+    <div class="card">
+      <label>房间号（两人一致）</label>
+      <input id="roomId" placeholder="例如 room-001" />
+
+      <label>你的标识（昵称）</label>
+      <input id="userId" placeholder="例如 小张" />
+    </div>
+
+    <div class="card">
+      <label>题目来源</label>
+      <select id="questionMode">
+        <option value="preset">使用预设争议题</option>
+        <option value="custom">自定义题目</option>
+      </select>
+
+      <div id="presetSection">
+        <label>预设题目</label>
+        <select id="presetSelect"></select>
+      </div>
+
+      <div id="customSection" style="display:none;">
+        <label>自定义题目</label>
+        <textarea id="customQuestion" rows="3" placeholder="输入政治/哲学争议问题"></textarea>
+        <label>备选项（每行一个，可留空仅自由回答）</label>
+        <textarea id="customOptions" rows="3" placeholder="例如：\n支持\n反对\n中立"></textarea>
+      </div>
+
+      <label>选择备选项（可选）</label>
+      <select id="selectedOption"><option value="">不选择，直接自由回答</option></select>
+
+      <label>自由回答（必填）</label>
+      <textarea id="answerText" rows="4" placeholder="请阐述你的立场与理由"></textarea>
+    </div>
+
+    <div class="card">
+      <h3>模型接入（可选）</h3>
+      <p class="hint">不填写则默认使用 GitHub Models（需服务端配置 GITHUB_TOKEN）。</p>
+      <div class="two-cols">
+        <div>
+          <label>供应商</label>
+          <select id="apiProvider">
+            <option value="github-models">GitHub Models</option>
+            <option value="openai">OpenAI</option>
+          </select>
+        </div>
+        <div>
+          <label>模型名</label>
+          <input id="apiModel" placeholder="gpt-4o-mini" />
+        </div>
+      </div>
+      <label>API Key</label>
+      <input id="apiKey" type="password" placeholder="sk-..." />
+    </div>
+
+    <button id="submitBtn">提交回答并查看匹配结果</button>
+    <pre id="status"></pre>
+
+    <script>
+      const statusEl = document.getElementById('status');
+      const questionModeEl = document.getElementById('questionMode');
+      const presetSectionEl = document.getElementById('presetSection');
+      const customSectionEl = document.getElementById('customSection');
+      const presetSelectEl = document.getElementById('presetSelect');
+      const selectedOptionEl = document.getElementById('selectedOption');
+
+      let presets = [];
+
+      function setStatus(text) {
+        statusEl.textContent = text;
+      }
+
+      function currentQuestion() {
+        if (questionModeEl.value === 'custom') {
+          const questionText = document.getElementById('customQuestion').value.trim();
+          const options = document.getElementById('customOptions').value
+            .split('\n')
+            .map((x) => x.trim())
+            .filter(Boolean);
+          return {
+            questionType: options.length ? 'multiple-choice' : 'free-text',
+            questionText,
+            options,
+          };
+        }
+
+        const selected = presets.find((item) => item.id === presetSelectEl.value);
+        return {
+          questionType: selected?.questionType || 'free-text',
+          questionText: selected?.title || '',
+          options: selected?.options || [],
+        };
+      }
+
+      function refillOptionSelect(options) {
+        selectedOptionEl.innerHTML = '<option value="">不选择，直接自由回答</option>';
+        options.forEach((opt) => {
+          const el = document.createElement('option');
+          el.value = opt;
+          el.textContent = opt;
+          selectedOptionEl.appendChild(el);
+        });
+      }
+
+      async function loadPresets() {
+        const res = await fetch('/api/preset-questions');
+        const data = await res.json();
+        presets = data.questions || [];
+
+        presetSelectEl.innerHTML = '';
+        presets.forEach((q) => {
+          const opt = document.createElement('option');
+          opt.value = q.id;
+          opt.textContent = q.title;
+          presetSelectEl.appendChild(opt);
+        });
+
+        refillOptionSelect(presets[0]?.options || []);
+      }
+
+      async function pollResult(roomId, userId) {
+        for (let i = 0; i < 20; i += 1) {
+          const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/result?userId=${encodeURIComponent(userId)}`);
+          const data = await res.json();
+          if (data.status === 'ready') {
+            const result = data.result;
+            setStatus(
+              `✅ 匹配完成\n相似度：${result.similarity}%\n共同倾向：${result.leaning}\n解释：${result.reason}\n来源：${result.provider}`
+            );
+            return;
+          }
+
+          setStatus(`⌛ 已有 ${data.participantCount} 人提交，等待另一位参与者...`);
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+        }
+
+        setStatus('仍在等待另一位参与者，你可以稍后再次点击提交查看结果。');
+      }
+
+      questionModeEl.addEventListener('change', () => {
+        const custom = questionModeEl.value === 'custom';
+        presetSectionEl.style.display = custom ? 'none' : 'block';
+        customSectionEl.style.display = custom ? 'block' : 'none';
+        refillOptionSelect(custom ? [] : (presets.find((x) => x.id === presetSelectEl.value)?.options || []));
+      });
+
+      presetSelectEl.addEventListener('change', () => {
+        const selected = presets.find((x) => x.id === presetSelectEl.value);
+        refillOptionSelect(selected?.options || []);
+      });
+
+      document.getElementById('customOptions').addEventListener('input', () => {
+        if (questionModeEl.value !== 'custom') return;
+        const options = document.getElementById('customOptions').value
+          .split('\n')
+          .map((x) => x.trim())
+          .filter(Boolean);
+        refillOptionSelect(options);
+      });
+
+      document.getElementById('submitBtn').addEventListener('click', async () => {
+        const roomId = document.getElementById('roomId').value.trim();
+        const userId = document.getElementById('userId').value.trim();
+        const answerText = document.getElementById('answerText').value.trim();
+
+        if (!roomId || !userId || !answerText) {
+          setStatus('请填写房间号、昵称和回答内容。');
+          return;
+        }
+
+        const question = currentQuestion();
+        if (!question.questionText) {
+          setStatus('请先选择或输入题目。');
+          return;
+        }
+
+        const apiProvider = document.getElementById('apiProvider').value.trim();
+        const apiModel = document.getElementById('apiModel').value.trim();
+        const apiKey = document.getElementById('apiKey').value.trim();
+
+        const body = {
+          roomId,
+          userId,
+          answerText,
+          selectedOption: selectedOptionEl.value,
+          ...question,
+          apiConfig: {
+            provider: apiProvider,
+            model: apiModel,
+            apiKey,
+          },
+        };
+
+        setStatus('提交中...');
+        const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/submit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          setStatus(`提交失败：${data.error || res.statusText}`);
+          return;
+        }
+
+        if (data.status === 'ready') {
+          setStatus(
+            `✅ 匹配完成\n相似度：${data.result.similarity}%\n共同倾向：${data.result.leaning}\n解释：${data.result.reason}\n来源：${data.result.provider}`
+          );
+          return;
+        }
+
+        await pollResult(roomId, userId);
+      });
+
+      loadPresets().catch(() => setStatus('加载预设题失败，请刷新重试。'));
+    </script>
+  </body>
+</html>

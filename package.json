@@ -1,0 +1,17 @@
+{
+  "name": "ai-philosophy-match",
+  "version": "1.0.0",
+  "description": "毫末累土",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://localhost:26831/Arthur-bit7/ai-philosophy-match"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
