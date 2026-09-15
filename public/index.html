@@ -56,8 +56,11 @@
       <p class="hint">不填写则默认使用 GitHub Models（需服务端配置 GITHUB_TOKEN）。</p>
       <div class="two-cols">
         <div>
-          <label>API Base URL</label>
-          <input id="apiBaseUrl" placeholder="https://..." />
+          <label>供应商</label>
+          <select id="apiProvider">
+            <option value="github-models">GitHub Models</option>
+            <option value="openai">OpenAI</option>
+          </select>
         </div>
         <div>
           <label>模型名</label>
@@ -189,7 +192,7 @@
           return;
         }
 
-        const apiBaseUrl = document.getElementById('apiBaseUrl').value.trim();
+        const apiProvider = document.getElementById('apiProvider').value.trim();
         const apiModel = document.getElementById('apiModel').value.trim();
         const apiKey = document.getElementById('apiKey').value.trim();
 
@@ -200,8 +203,7 @@
           selectedOption: selectedOptionEl.value,
           ...question,
           apiConfig: {
-            apiBaseUrl,
-            baseUrl: apiBaseUrl,
+            provider: apiProvider,
             model: apiModel,
             apiKey,
           },

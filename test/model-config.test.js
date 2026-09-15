@@ -1,25 +1,25 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { isSafeRemoteBaseUrl, buildModelConfig } = require('../src/model-config');
+const { buildModelConfig } = require('../src/model-config');
 
-test('isSafeRemoteBaseUrl accepts public https endpoint', () => {
-  assert.equal(isSafeRemoteBaseUrl('https://api.openai.com/v1'), true);
+test('buildModelConfig maps OpenAI provider to fixed endpoint', () => {
+  const config = buildModelConfig({
+    provider: 'openai',
+    apiKey: 'k',
+    model: 'gpt-4o-mini',
+  });
+  assert.equal(config.baseUrl, 'https://api.openai.com');
+  assert.equal(config.provider, 'openai');
 });
 
-test('isSafeRemoteBaseUrl rejects localhost and private ranges', () => {
-  assert.equal(isSafeRemoteBaseUrl('http://localhost:3000/v1'), false);
-  assert.equal(isSafeRemoteBaseUrl('https://127.0.0.1/v1'), false);
-  assert.equal(isSafeRemoteBaseUrl('https://192.168.1.20/v1'), false);
-});
-
-test('buildModelConfig throws for unsafe custom endpoint', () => {
+test('buildModelConfig rejects unsupported provider', () => {
   assert.throws(
     () =>
       buildModelConfig({
+        provider: 'custom-url',
         apiKey: 'k',
-        baseUrl: 'http://localhost:3000/v1',
         model: 'x',
       }),
-    /HTTPS/
+    /不支持/
   );
 });
