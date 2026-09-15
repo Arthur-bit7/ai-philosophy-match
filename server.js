@@ -2,6 +2,7 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const { fallbackSimilarity, parseModelSimilarity } = require('./src/similarity');
+const { buildModelConfig } = require('./src/model-config');
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -72,26 +73,6 @@ function parseBody(req) {
     });
     req.on('error', reject);
   });
-}
-
-function buildModelConfig(apiConfig = {}) {
-  const hasCustomApi = Boolean(apiConfig.apiKey && apiConfig.baseUrl && apiConfig.model);
-
-  if (hasCustomApi) {
-    return {
-      provider: 'custom',
-      apiKey: String(apiConfig.apiKey),
-      baseUrl: String(apiConfig.baseUrl).replace(/\/$/, ''),
-      model: String(apiConfig.model),
-    };
-  }
-
-  return {
-    provider: 'github-models',
-    apiKey: process.env.GITHUB_TOKEN || process.env.GITHUB_MODELS_API_KEY || '',
-    baseUrl: (process.env.GITHUB_MODELS_ENDPOINT || 'https://models.inference.ai.azure.com').replace(/\/$/, ''),
-    model: process.env.GITHUB_MODELS_MODEL || 'gpt-4o-mini',
-  };
 }
 
 async function callSimilarityModel(question, first, second, modelConfig) {
@@ -217,7 +198,13 @@ async function handleSubmit(req, res, roomId) {
 
   room.submissions.set(userId, toSubmission(userId, answerText, selectedOption));
 
-  const modelConfig = buildModelConfig(payload.apiConfig || {});
+  let modelConfig;
+  try {
+    modelConfig = buildModelConfig(payload.apiConfig || {});
+  } catch (error) {
+    sendJson(res, 400, { error: error.message });
+    return;
+  }
   const result = await ensureResult(room, modelConfig);
 
   sendJson(res, 200, {

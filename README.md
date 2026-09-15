@@ -8,6 +8,7 @@
 - 支持预设争议题，也支持自由编辑题目和备选项
 - 支持“备选项 + 自由文本”回答
 - 可选输入任意兼容 OpenAI Chat Completions 的 API（base URL / model / key）
+- 自定义 API 地址要求为公网 HTTPS（避免 SSRF 风险）
 - 不输入 API 时默认走 GitHub Models 配置
 - 输出两位回答倾向相似度（模型优先，失败时回退关键词重合度）
 
