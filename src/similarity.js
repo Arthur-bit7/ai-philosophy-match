@@ -1,50 +1,79 @@
+const segmenter = new Intl.Segmenter('zh-CN', { granularity: 'word' });
 function tokenize(text) {
-  return String(text || '')
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter(Boolean);
+  return [
+    ...segmenter.segment(
+      String(text || '')
+        .normalize('NFKC')
+        .toLowerCase(),
+    ),
+  ]
+    .filter((item) => item.isWordLike)
+    .map((item) => item.segment);
 }
-
 function fallbackSimilarity(answerA, answerB) {
-  const setA = new Set(tokenize(answerA));
-  const setB = new Set(tokenize(answerB));
-
-  if (setA.size === 0 && setB.size === 0) {
-    return 100;
-  }
-
-  const intersection = [...setA].filter((token) => setB.has(token)).length;
-  const union = new Set([...setA, ...setB]).size;
-  if (union === 0) {
-    return 0;
-  }
-  return Math.round((intersection / union) * 100);
+  const a = new Set(tokenize(answerA));
+  const b = new Set(tokenize(answerB));
+  const union = new Set([...a, ...b]).size;
+  if (!union) return 0;
+  return Math.round(([...a].filter((token) => b.has(token)).length / union) * 100);
 }
-
+function localComparison(first, second, notice = '') {
+  const bothSelected = first.selectedOption && second.selectedOption;
+  const optionAgreement = bothSelected ? first.selectedOption === second.selectedOption : null;
+  const hasText = tokenize(first.answerText).length > 0 && tokenize(second.answerText).length > 0;
+  return {
+    similarity: hasText ? fallbackSimilarity(first.answerText, second.answerText) : null,
+    metric: '词语重合度',
+    provider: 'local',
+    optionAgreement,
+    reason: '仅比较回答中的词语，无法识别否定、语境或价值取舍。词语相似不等于观点相同。',
+    commonGround: optionAgreement === true ? ['你们选择了同一个选项，可以进一步比较理由。'] : [],
+    differences:
+      optionAgreement === false ? ['你们选择了不同选项，可以先解释各自最看重的价值。'] : [],
+    followUp: '在什么具体情境下，你愿意改变刚才的选择？',
+    notice,
+  };
+}
 function parseModelSimilarity(content) {
-  const raw = String(content || '').trim();
-  if (!raw) return null;
-
-  const blockMatch = raw.match(/\{[\s\S]*\}/);
-  const candidate = blockMatch ? blockMatch[0] : raw;
-
+  if (typeof content !== 'string') return null;
+  const raw = content
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '');
   try {
-    const parsed = JSON.parse(candidate);
-    const similarity = Number(parsed.similarity);
-    if (!Number.isFinite(similarity)) return null;
+    const parsed = JSON.parse(raw);
+    if (
+      !parsed ||
+      typeof parsed.similarity !== 'number' ||
+      !Number.isFinite(parsed.similarity) ||
+      parsed.similarity < 0 ||
+      parsed.similarity > 100
+    )
+      return null;
+    for (const key of ['reason', 'followUp']) {
+      if (typeof parsed[key] !== 'string' || !parsed[key].trim() || parsed[key].length > 2000)
+        return null;
+    }
+    for (const key of ['commonGround', 'differences']) {
+      if (
+        !Array.isArray(parsed[key]) ||
+        parsed[key].length > 5 ||
+        parsed[key].some((item) => typeof item !== 'string' || !item.trim() || item.length > 1000)
+      )
+        return null;
+    }
     return {
-      similarity: Math.max(0, Math.min(100, Math.round(similarity))),
-      reason: String(parsed.reason || '模型未提供详细解释。'),
-      leaning: String(parsed.leaning || '未明确'),
+      similarity: Math.round(parsed.similarity),
+      reason: parsed.reason,
+      commonGround: parsed.commonGround,
+      differences: parsed.differences,
+      followUp: parsed.followUp,
+      metric: '本题观点相近度',
+      provider: 'openai',
+      notice: 'AI 分析仅供讨论参考，不代表对个人或政治身份的判断。',
     };
   } catch {
     return null;
   }
 }
-
-module.exports = {
-  fallbackSimilarity,
-  parseModelSimilarity,
-};
+module.exports = { tokenize, fallbackSimilarity, localComparison, parseModelSimilarity };

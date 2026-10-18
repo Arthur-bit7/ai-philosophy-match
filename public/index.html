@@ -2,237 +2,259 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AI 立场匹配器</title>
-    <style>
-      body { font-family: sans-serif; max-width: 760px; margin: 20px auto; padding: 0 12px; }
-      textarea, input, select, button { width: 100%; margin: 6px 0 12px; padding: 8px; box-sizing: border-box; }
-      .card { border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
-      .hint { color: #666; font-size: 13px; }
-      .two-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-      @media (max-width: 640px) { .two-cols { grid-template-columns: 1fr; } }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#234f44" />
+    <title>同题 · 在差异中理解彼此</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
   </head>
   <body>
-    <h1>政治/哲学立场匹配器</h1>
-    <p class="hint">两位远程用户输入同一房间号并回答同一道题，系统将给出立场相似度。</p>
-
-    <div class="card">
-      <label>房间号（两人一致）</label>
-      <input id="roomId" placeholder="例如 room-001" />
-
-      <label>你的标识（昵称）</label>
-      <input id="userId" placeholder="例如 小张" />
-    </div>
-
-    <div class="card">
-      <label>题目来源</label>
-      <select id="questionMode">
-        <option value="preset">使用预设争议题</option>
-        <option value="custom">自定义题目</option>
-      </select>
-
-      <div id="presetSection">
-        <label>预设题目</label>
-        <select id="presetSelect"></select>
-      </div>
-
-      <div id="customSection" style="display:none;">
-        <label>自定义题目</label>
-        <textarea id="customQuestion" rows="3" placeholder="输入政治/哲学争议问题"></textarea>
-        <label>备选项（每行一个，可留空仅自由回答）</label>
-        <textarea id="customOptions" rows="3" placeholder="例如：\n支持\n反对\n中立"></textarea>
-      </div>
-
-      <label>选择备选项（可选）</label>
-      <select id="selectedOption"><option value="">不选择，直接自由回答</option></select>
-
-      <label>自由回答（必填）</label>
-      <textarea id="answerText" rows="4" placeholder="请阐述你的立场与理由"></textarea>
-    </div>
-
-    <div class="card">
-      <h3>模型接入（可选）</h3>
-      <p class="hint">不填写则默认使用 GitHub Models（需服务端配置 GITHUB_TOKEN）。</p>
-      <div class="two-cols">
-        <div>
-          <label>供应商</label>
-          <select id="apiProvider">
-            <option value="github-models">GitHub Models</option>
-            <option value="openai">OpenAI</option>
-          </select>
+    <header class="site-header">
+      <a href="/" class="brand"
+        ><span class="brand-mark" aria-hidden="true">同</span>同题
+        <span class="brand-en">COMMON GROUND</span></a
+      ><span class="header-note">两个人 · 一道题 · 多一种理解</span>
+    </header>
+    <main>
+      <div id="message" class="message" role="status" aria-live="polite" hidden></div>
+      <section id="lobby">
+        <div class="hero">
+          <div>
+            <p class="eyebrow">给认真对话，留一个空间</p>
+            <h1>我们有多相似？<br />从一个<span class="accent">好问题</span>开始。</h1>
+            <p class="hero-copy">
+              邀请一个朋友，各自写下真实想法。<br />看见共识，也听懂分歧背后的理由。
+            </p>
+          </div>
+          <div class="conversation-art" aria-hidden="true">
+            <div class="orbit orbit-a">你的<br />视角</div>
+            <div class="orbit orbit-b">我的<br />视角</div>
+            <span class="art-caption">相遇，不必相同。</span>
+          </div>
         </div>
-        <div>
-          <label>模型名</label>
-          <input id="apiModel" placeholder="gpt-4o-mini" />
+        <div class="steps">
+          <span><b>01</b> 选一道值得聊的题</span><span><b>02</b> 各自回答，同时揭晓</span
+          ><span><b>03</b> 带着好奇，继续讨论</span>
         </div>
-      </div>
-      <label>API Key</label>
-      <input id="apiKey" type="password" placeholder="sk-..." />
-    </div>
-
-    <button id="submitBtn">提交回答并查看匹配结果</button>
-    <pre id="status"></pre>
-
-    <script>
-      const statusEl = document.getElementById('status');
-      const questionModeEl = document.getElementById('questionMode');
-      const presetSectionEl = document.getElementById('presetSection');
-      const customSectionEl = document.getElementById('customSection');
-      const presetSelectEl = document.getElementById('presetSelect');
-      const selectedOptionEl = document.getElementById('selectedOption');
-
-      let presets = [];
-
-      function setStatus(text) {
-        statusEl.textContent = text;
-      }
-
-      function currentQuestion() {
-        if (questionModeEl.value === 'custom') {
-          const questionText = document.getElementById('customQuestion').value.trim();
-          const options = document.getElementById('customOptions').value
-            .split('\n')
-            .map((x) => x.trim())
-            .filter(Boolean);
-          return {
-            questionType: options.length ? 'multiple-choice' : 'free-text',
-            questionText,
-            options,
-          };
-        }
-
-        const selected = presets.find((item) => item.id === presetSelectEl.value);
-        return {
-          questionType: selected?.questionType || 'free-text',
-          questionText: selected?.title || '',
-          options: selected?.options || [],
-        };
-      }
-
-      function refillOptionSelect(options) {
-        selectedOptionEl.innerHTML = '<option value="">不选择，直接自由回答</option>';
-        options.forEach((opt) => {
-          const el = document.createElement('option');
-          el.value = opt;
-          el.textContent = opt;
-          selectedOptionEl.appendChild(el);
-        });
-      }
-
-      async function loadPresets() {
-        const res = await fetch('/api/preset-questions');
-        const data = await res.json();
-        presets = data.questions || [];
-
-        presetSelectEl.innerHTML = '';
-        presets.forEach((q) => {
-          const opt = document.createElement('option');
-          opt.value = q.id;
-          opt.textContent = q.title;
-          presetSelectEl.appendChild(opt);
-        });
-
-        refillOptionSelect(presets[0]?.options || []);
-      }
-
-      async function pollResult(roomId, userId) {
-        for (let i = 0; i < 20; i += 1) {
-          const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/result?userId=${encodeURIComponent(userId)}`);
-          const data = await res.json();
-          if (data.status === 'ready') {
-            const result = data.result;
-            setStatus(
-              `✅ 匹配完成\n相似度：${result.similarity}%\n共同倾向：${result.leaning}\n解释：${result.reason}\n来源：${result.provider}`
-            );
-            return;
-          }
-
-          setStatus(`⌛ 已有 ${data.participantCount} 人提交，等待另一位参与者...`);
-          await new Promise((resolve) => setTimeout(resolve, 3000));
-        }
-
-        setStatus('仍在等待另一位参与者，你可以稍后再次点击提交查看结果。');
-      }
-
-      questionModeEl.addEventListener('change', () => {
-        const custom = questionModeEl.value === 'custom';
-        presetSectionEl.style.display = custom ? 'none' : 'block';
-        customSectionEl.style.display = custom ? 'block' : 'none';
-        refillOptionSelect(custom ? [] : (presets.find((x) => x.id === presetSelectEl.value)?.options || []));
-      });
-
-      presetSelectEl.addEventListener('change', () => {
-        const selected = presets.find((x) => x.id === presetSelectEl.value);
-        refillOptionSelect(selected?.options || []);
-      });
-
-      document.getElementById('customOptions').addEventListener('input', () => {
-        if (questionModeEl.value !== 'custom') return;
-        const options = document.getElementById('customOptions').value
-          .split('\n')
-          .map((x) => x.trim())
-          .filter(Boolean);
-        refillOptionSelect(options);
-      });
-
-      document.getElementById('submitBtn').addEventListener('click', async () => {
-        const roomId = document.getElementById('roomId').value.trim();
-        const userId = document.getElementById('userId').value.trim();
-        const answerText = document.getElementById('answerText').value.trim();
-
-        if (!roomId || !userId || !answerText) {
-          setStatus('请填写房间号、昵称和回答内容。');
-          return;
-        }
-
-        const question = currentQuestion();
-        if (!question.questionText) {
-          setStatus('请先选择或输入题目。');
-          return;
-        }
-
-        const apiProvider = document.getElementById('apiProvider').value.trim();
-        const apiModel = document.getElementById('apiModel').value.trim();
-        const apiKey = document.getElementById('apiKey').value.trim();
-
-        const body = {
-          roomId,
-          userId,
-          answerText,
-          selectedOption: selectedOptionEl.value,
-          ...question,
-          apiConfig: {
-            provider: apiProvider,
-            model: apiModel,
-            apiKey,
-          },
-        };
-
-        setStatus('提交中...');
-        const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/submit`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-
-        const data = await res.json();
-        if (!res.ok) {
-          setStatus(`提交失败：${data.error || res.statusText}`);
-          return;
-        }
-
-        if (data.status === 'ready') {
-          setStatus(
-            `✅ 匹配完成\n相似度：${data.result.similarity}%\n共同倾向：${data.result.leaning}\n解释：${data.result.reason}\n来源：${data.result.provider}`
-          );
-          return;
-        }
-
-        await pollResult(roomId, userId);
-      });
-
-      loadPresets().catch(() => setStatus('加载预设题失败，请刷新重试。'));
-    </script>
+        <div class="lobby-grid">
+          <section class="panel">
+            <div class="section-heading">
+              <span class="eyebrow">开启对话</span><span class="pill">无需注册</span>
+            </div>
+            <h2>先介绍一下你自己</h2>
+            <label for="nickname">你的昵称</label
+            ><input
+              id="nickname"
+              maxlength="30"
+              placeholder="朋友会看到这个名字"
+              autocomplete="nickname"
+            />
+            <form id="createForm">
+              <div id="createEditor"></div>
+              <details class="model-details">
+                <summary>比较方式 <span class="muted">默认本地，无需 API</span></summary>
+                <label for="provider">分析方式</label
+                ><select id="provider">
+                  <option value="local">本地比较 · 不调用外部 AI</option>
+                  <option value="openai">OpenAI · 分析共识与分歧</option>
+                </select>
+                <div id="modelFields" hidden>
+                  <label for="apiModel">模型名</label
+                  ><input id="apiModel" maxlength="120" placeholder="gpt-4o-mini" />
+                  <label for="apiKey">OpenAI API Key</label
+                  ><input
+                    id="apiKey"
+                    type="password"
+                    maxlength="512"
+                    autocomplete="off"
+                    placeholder="服务器已配置时可留空"
+                  />
+                  <p class="hint">
+                    密钥只在服务器内存中保留至房间过期，不发给另一位参与者。公开部署请使用 HTTPS。
+                  </p>
+                  <label class="check"
+                    ><input
+                      type="checkbox"
+                      id="createConsent"
+                    />我同意将本房间的题目和双方回答发送给 OpenAI 分析。</label
+                  >
+                </div>
+              </details>
+              <button id="createBtn" type="submit" class="primary wide" disabled>
+                创建双人房间 <span aria-hidden="true">↗</span>
+              </button>
+            </form>
+          </section>
+          <aside>
+            <section class="panel join-panel">
+              <p class="eyebrow">已有邀约？</p>
+              <h2>加入朋友的房间</h2>
+              <p class="muted">使用邀请链接，或者输入朋友发来的房间号。</p>
+              <form id="previewForm">
+                <label for="roomCode">房间号</label
+                ><input
+                  id="roomCode"
+                  maxlength="12"
+                  placeholder="12 位字母或数字"
+                  autocapitalize="characters"
+                  spellcheck="false"
+                /><button type="submit" class="secondary wide">
+                  查看房间 <span aria-hidden="true">→</span>
+                </button>
+              </form>
+              <div id="joinPreview" hidden>
+                <p id="previewText"></p>
+                <label id="joinConsentLabel" class="check" hidden
+                  ><input type="checkbox" id="joinConsent" />我同意将回答发送给 OpenAI 分析。</label
+                ><button type="button" id="joinBtn" class="primary wide">加入对话</button>
+              </div>
+            </section>
+            <section class="note">
+              <span class="note-icon" aria-hidden="true">“</span>
+              <h3>理解，比得分更重要。</h3>
+              <p>
+                本地模式展示词语重合与选项对照；AI
+                模式尝试解释这道题上的共识和分歧。它们都不能定义一个人。
+              </p>
+              <p class="hint">
+                房间保留 24 小时，服务器重启后清空。只有双方提交后，才会向彼此展示完整回答。
+              </p>
+            </section>
+          </aside>
+        </div>
+      </section>
+      <section id="room" hidden>
+        <div class="room-heading">
+          <div>
+            <p class="eyebrow">一场正在发生的对话</p>
+            <h1>一起，把问题聊深一点。</h1>
+          </div>
+          <button id="backBtn" class="text-button" type="button">返回首页 ↗</button>
+        </div>
+        <div class="room-bar">
+          <div>
+            <span class="muted">房间</span> <strong id="activeCode"></strong
+            ><span id="roundBadge" class="pill"></span>
+          </div>
+          <button id="copyBtn" class="secondary" type="button">复制邀请链接</button>
+        </div>
+        <div id="manualInvite" hidden>
+          <label for="inviteLink">请复制下方链接发送给朋友</label><input id="inviteLink" readonly />
+        </div>
+        <div class="room-grid">
+          <section class="panel answer-panel">
+            <div class="section-heading">
+              <span class="eyebrow">本轮问题</span><span id="analysisBadge" class="pill"></span>
+            </div>
+            <h2 id="questionTitle" class="question-title"></h2>
+            <form id="answerForm">
+              <fieldset id="answerFields">
+                <legend class="sr-only">你的回答</legend>
+                <div id="answerOptions" class="answer-options"></div>
+                <label for="answerText"
+                  >写下你的想法 <span class="muted">选项和文字至少填写一项</span></label
+                ><textarea
+                  id="answerText"
+                  maxlength="4000"
+                  rows="6"
+                  placeholder="你为什么这样想？有没有一个具体的例子？"
+                ></textarea>
+                <div class="answer-footer">
+                  <span id="charCount" class="hint">0 / 4000</span
+                  ><span class="hint">提交后，本轮回答将锁定</span>
+                </div>
+              </fieldset>
+              <button id="submitBtn" type="submit" class="primary wide">
+                提交我的回答 <span aria-hidden="true">→</span>
+              </button>
+            </form>
+            <p id="roundStatus" class="status-line" role="status" aria-live="polite"></p>
+          </section>
+          <aside class="room-sidebar">
+            <section class="panel">
+              <p class="eyebrow">对话中的两个人</p>
+              <div id="participants"></div>
+              <p class="hint">各自思考后再看答案，让每个声音都保持真实。</p>
+            </section>
+            <section class="note">
+              <h3>先问「为什么」。</h3>
+              <p>试着说说你最在意的原则，而不只是赞成或反对。一个反例，有时比一次争论更有帮助。</p>
+              <p id="expiryNote" class="hint"></p>
+            </section>
+          </aside>
+        </div>
+        <section id="resultSection" class="panel result-panel" hidden aria-labelledby="resultTitle">
+          <div class="section-heading">
+            <p class="eyebrow">对话的交集</p>
+            <button id="exportBtn" class="text-button" type="button">下载讨论记录 ↓</button>
+          </div>
+          <h2 id="resultTitle">答案揭晓，理解才刚开始。</h2>
+          <div class="result-intro">
+            <div class="score-block"><strong id="score"></strong><span id="metric"></span></div>
+            <div>
+              <span id="resultSource" class="pill"></span>
+              <p id="reason"></p>
+              <p id="resultNotice" class="hint"></p>
+            </div>
+          </div>
+          <div id="answerComparison" class="comparison-grid"></div>
+          <div class="comparison-grid insights">
+            <div>
+              <h3>可以接着聊的共同点</h3>
+              <ul id="commonGround"></ul>
+            </div>
+            <div>
+              <h3>值得进一步理解的差异</h3>
+              <ul id="differences"></ul>
+            </div>
+          </div>
+          <div class="follow-up">
+            <span class="eyebrow">再问彼此一个问题</span>
+            <p id="followUp"></p>
+          </div>
+        </section>
+        <section id="nextSection" class="panel" hidden>
+          <p class="eyebrow">继续探索</p>
+          <h2>下一轮，聊点什么？</h2>
+          <form id="nextForm">
+            <div id="nextEditor"></div>
+            <button type="submit" class="primary">开始下一轮 →</button>
+          </form>
+        </section>
+        <p id="guestNext" class="hint" hidden>可以先聊聊结果，房主选择下一道题后会自动同步。</p>
+        <section id="historySection" hidden>
+          <h2>一起走过的问题</h2>
+          <div id="history"></div>
+        </section>
+      </section>
+    </main>
+    <footer>
+      <span class="brand-footer">同题 / COMMON GROUND</span
+      ><span>保持独立思考，也为另一种答案留一点空间。</span>
+    </footer>
+    <template id="questionTemplate"
+      ><div class="question-editor">
+        <label>挑一道问题<select class="question-select"></select></label>
+        <div class="custom-fields" hidden>
+          <label
+            >你的问题<textarea
+              class="custom-question"
+              maxlength="500"
+              rows="2"
+              placeholder="写一个你们都想认真讨论的问题"
+            ></textarea></label
+          ><label
+            >备选项 <span class="muted">每行一个；留空则自由回答</span
+            ><textarea
+              class="custom-options"
+              rows="3"
+              placeholder="例如：&#10;支持&#10;反对&#10;视情况而定"
+            ></textarea>
+          </label>
+          <p class="hint">最多 8 项，每项不超过 120 字。</p>
+        </div>
+      </div></template
+    >
   </body>
 </html>

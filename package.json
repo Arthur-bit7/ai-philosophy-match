@@ -1,17 +1,28 @@
 {
   "name": "ai-philosophy-match",
-  "version": "1.0.0",
-  "description": "毫末累土",
+  "version": "2.0.0",
+  "description": "同题：双人哲学与价值观讨论，让共识与分歧都被看见",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test"
+    "start:env": "node --env-file=.env server.js",
+    "test": "node --test test/*.test.js",
+    "test:e2e": "playwright test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "repository": {
     "type": "git",
-    "url": "http://localhost:26831/Arthur-bit7/ai-philosophy-match"
+    "url": "https://github.com/Arthur-bit7/ai-philosophy-match.git"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "prettier": "^3.9.10"
+  },
+  "engines": {
+    "node": ">=22"
+  }
 }
